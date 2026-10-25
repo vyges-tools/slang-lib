@@ -1,0 +1,15 @@
+[package]
+name = "vyges-slang-lib"
+version = "0.1.45"
+edition = "2021"
+license = "Apache-2.0"
+authors = ["Vyges <https://vyges.com/contact>"]
+homepage = "https://vyges.com"
+description = "Pinned slang (SystemVerilog compiler) built with Bazel into one static archive, behind a small C shim and a safe Rust API."
+repository = "https://github.com/vyges-tools/slang-lib"
+links = "vyges_slang"
+build = "build.rs"
+
+[dependencies]
+
+[dev-dependencies]

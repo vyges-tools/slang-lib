@@ -1,0 +1,20 @@
+# vyges-slang-lib — the slang build this crate links. MODULE.bazel is what Bazel reads; this file is
+# the record of WHAT was pinned and WHY, for the provenance manifest and for a deliberate bump.
+#
+# ⛔ Bump deliberately (manual), never to "latest". Elaboration, diagnostics and their order depend
+# on slang's exact source and compiler.
+slang:
+  module: "10.0.1-20260316-f04e8156"   # Bazel Central Registry module `sv-lang` (MikePopoloski/slang @ f04e8156)
+  why: "the slang the reference synthesis frontend builds on: its Bazel module and its CMake submodule are the same commit"
+  patches: []
+transitive:                      # as the reference's Bazel graph resolves them (MODULE.bazel)
+  boost.unordered: "1.89.0.bcr.2"  # its BOOST_VERSION; slang asks 1.87.0
+  fmt: "12.1.0"                    # slang asks 12.0.0
+next:
+  slang-elab: "povik/yosys-slang @ 82effc8 (frontend library only) — added when the synthesis engine needs it"
+toolchain:
+  bazel: "9.1.1"                 # .bazelversion
+  llvm:  "0.8.18"                # hermetic LLVM Bazel module: the compiler is part of the pin
+  flags: ["-c opt", "-O3", "-ffp-contract=off", "-std=c++20"]
+license:
+  slang: MIT                     # LICENSE, Michael Popoloski

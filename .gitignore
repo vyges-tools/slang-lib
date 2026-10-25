@@ -1,0 +1,5 @@
+/target/
+/bazel-*
+/prebuilt/
+Cargo.lock
+MODULE.bazel.lock.tmp

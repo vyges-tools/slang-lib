@@ -1,0 +1,33 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Vyges
+#
+# Builds slang (SystemVerilog compiler and language services) into ONE static archive, plus the C
+# shim in `shim/`, for the Rust crate in this repository to link.
+#
+# ⛔ The version below is deliberate, not "latest": it is the slang the synthesis frontend we
+# correlate against is built on (Bazel module `sv-lang` 10.0.1-20260316-f04e8156 — the same source
+# commit its CMake build takes as a submodule). Elaboration results, diagnostics and their order
+# depend on the exact source. Pin, and bump on purpose — see `slang-pin.yaml`.
+
+module(
+    name = "vyges_slang",
+    version = "0.1.0",
+)
+
+bazel_dep(name = "sv-lang", version = "10.0.1-20260316-f04e8156")
+bazel_dep(name = "rules_cc", version = "0.2.22")
+
+# ⛔ THE TRANSITIVE SET IS PINNED TOO (Bazel's MVS takes the highest version anything asks for).
+# These are the versions the reference's own Bazel graph resolves slang's dependencies to (its
+# MODULE.bazel + lockfile at the pin), higher than slang itself asks for. boost.unordered decides
+# the iteration order of slang's hash containers. Keep this block in step with `slang-pin.yaml`.
+bazel_dep(name = "boost.unordered", version = "1.89.0.bcr.2")
+bazel_dep(name = "fmt", version = "12.1.0")
+
+# Hermetic LLVM: the compiler is part of the pin, not whatever the host has.
+bazel_dep(name = "llvm", version = "0.8.18", dev_dependency = True)
+
+register_toolchains(
+    "@llvm//toolchain:all",
+    dev_dependency = True,
+)

@@ -1,0 +1,165 @@
+# SPDX-License-Identifier: Apache-2.0
+# Build & test on every push to main and on pull requests (plus manual dispatch) — and publish the
+# prebuilt bundle the first time a push to main brings a bundle id with none published.
+#
+# 🔑 **The bundle is built once per BUNDLE ID, not once per run.** `scripts/bundle-id.sh` hashes
+# every file the Bazel build reads; a release `bundle-<id>` holds the archive built from exactly
+# those inputs. A run whose id is already published fetches it (seconds) and tests the crate
+# against it. Only a run that changed a build input compiles slang from source, and on main it then publishes that id, so every
+# later run — here and in the crates that link this one — fetches it instead.
+#
+# One workflow, not a test workflow plus a bundle workflow: a separate bundle job would race the
+# tests of the very push that changed the id, which would then have nothing to fetch.
+#
+# 🔑 ONE ASSET PER TARGET in the same release: x86_64 and arm64 Linux and Apple Silicon macOS, each
+# built NATIVELY on its own
+# runner with the same pinned compiler and flags. "Published" is per asset, so a release holding one
+# target's archive still builds the other.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write   # publish release `bundle-<id>` (push to main only)
+
+jobs:
+  bundle-and-test:
+    name: bundle & test (${{ matrix.target }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { target: x86_64-unknown-linux-gnu, runner: ubuntu-latest, bazelisk: bazelisk-linux-amd64 }
+          - { target: aarch64-unknown-linux-gnu, runner: ubuntu-24.04-arm, bazelisk: bazelisk-linux-arm64 }
+          - { target: aarch64-apple-darwin,      runner: macos-15,         bazelisk: bazelisk-darwin-arm64 }
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 300
+    env:
+      TARGET: ${{ matrix.target }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Bundle id
+        id: id
+        run: |
+          id=$(bash scripts/bundle-id.sh)
+          echo "id=$id" >> "$GITHUB_OUTPUT"
+          if gh release view "bundle-$id" --repo "$GITHUB_REPOSITORY" --json assets -q '.assets[].name' 2>/dev/null \
+               | grep -qx "vyges-slang-$id-$TARGET.tar.gz"; then
+            echo "published=true" >> "$GITHUB_OUTPUT"
+            echo "bundle-$id has $TARGET — fetching it"
+          else
+            echo "published=false" >> "$GITHUB_OUTPUT"
+            echo "bundle-$id has no $TARGET — building it from source"
+          fi
+
+      - name: Fetch the published bundle
+        if: steps.id.outputs.published == 'true'
+        run: bash scripts/fetch-bundle.sh "$RUNNER_TEMP/bundle"
+
+      # The source build needs room: the runner image's preinstalled SDKs leave too little disk for
+      # the Bazel output base of slang + the hermetic LLVM.
+      - name: Free disk space
+        if: steps.id.outputs.published != 'true'
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          df -h /
+
+      - name: Bazelisk (pinned)
+        if: steps.id.outputs.published != 'true'
+        run: |
+          mkdir -p "$RUNNER_TEMP/bin"
+          curl -fsSL -o "$RUNNER_TEMP/bin/bazelisk" \
+            https://github.com/bazelbuild/bazelisk/releases/download/v1.25.0/${{ matrix.bazelisk }}
+          chmod +x "$RUNNER_TEMP/bin/bazelisk"
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+
+      - name: Build the bundle from source (Bazel, pinned)
+        if: steps.id.outputs.published != 'true'
+        run: bash scripts/bundle.sh "$RUNNER_TEMP/bundle"
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      # Against the bundle just fetched or built — the archive a consumer links, not a second build.
+      - name: Test
+        run: VYGES_SLANG_PREBUILT_DIR="$RUNNER_TEMP/bundle" cargo test --verbose
+
+      # The third-party notices of everything compiled into the archive, as the fetched sources
+      # ship them (NOTICE promises the bundle carries them).
+      - name: Package
+        if: steps.id.outputs.published != 'true'
+        id: pkg
+        run: |
+          set -eu
+          id=${{ steps.id.outputs.id }}
+          name="vyges-slang-$id-$TARGET"
+          stage="$RUNNER_TEMP/$name"
+          mkdir -p "$stage/licenses"
+          cp -r "$RUNNER_TEMP/bundle/." "$stage/"
+          ob=$(bazelisk info output_base)
+          for d in "$ob"/external/*/; do
+            repo=$(basename "$d")
+            for f in "$d"LICENSE* "$d"LICENCE* "$d"COPYING* "$d"NOTICE*; do
+              [ -f "$f" ] || continue
+              mkdir -p "$stage/licenses/$repo"
+              cp "$f" "$stage/licenses/$repo/"
+            done
+          done
+          cat > "$stage/manifest.json" <<JSON
+          {"bundle_id": "$id", "target": "$TARGET", "commit": "$GITHUB_SHA",
+           "built_by": "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"}
+          JSON
+          tar -C "$RUNNER_TEMP" -czf "$GITHUB_WORKSPACE/$name.tar.gz" "$name"
+          ( cd "$GITHUB_WORKSPACE" && shasum -a 256 "$name.tar.gz" > "$name.tar.gz.sha256" )
+          echo "asset=$name.tar.gz" >> "$GITHUB_OUTPUT"
+          ls "$stage/licenses" | wc -l | xargs echo "third-party licence dirs:"
+
+      - name: Upload build artifact
+        if: steps.id.outputs.published != 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ steps.pkg.outputs.asset }}
+          path: |
+            ${{ steps.pkg.outputs.asset }}
+            ${{ steps.pkg.outputs.asset }}.sha256
+          retention-days: 30
+
+      # Only from main: a pull request's bundle is built and tested, never published.
+      # ⚠️ Both targets publish into ONE release, so either job may find it missing or already made
+      # by the other: create it if absent (a create that loses the race is retried as an upload).
+      - name: Publish release bundle-<id>
+        if: steps.id.outputs.published != 'true' && github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          id=${{ steps.id.outputs.id }}
+          assets=("${{ steps.pkg.outputs.asset }}" "${{ steps.pkg.outputs.asset }}.sha256")
+          for try in 1 2 3; do
+            if gh release view "bundle-$id" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+              gh release upload "bundle-$id" --repo "$GITHUB_REPOSITORY" "${assets[@]}" && exit 0
+            else
+              gh release create "bundle-$id" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+                --title "slang bundle $id" \
+                --notes "Prebuilt libvyges_slang.a for bundle id $id (Linux x86_64 and arm64, macOS arm64; one asset per target), built from $GITHUB_SHA. Fetch with scripts/fetch-bundle.sh." \
+                "${assets[@]}" && exit 0
+            fi
+            sleep 20
+          done
+          exit 1
+
+  lint:
+    name: fmt-free lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      # ⛔ NO `cargo fmt --check`: these crates are hand-formatted.
+      - name: No machine-specific paths in tracked files
+        run: |
+          if git grep -nE '/home/[a-z]+/|/Users/[a-z]+/' -- . ; then
+            echo "::error::a tracked file contains an absolute developer path"
+            exit 1
+          fi
+          echo "no machine-specific paths"

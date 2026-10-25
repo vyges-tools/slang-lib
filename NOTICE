@@ -1,0 +1,15 @@
+vyges-slang-lib
+Copyright 2026 Vyges
+
+Licensed under the Apache License, Version 2.0 (see LICENSE). This applies to the Vyges-authored
+files in this repository: the C shim (shim/), the Rust crate (src/, build.rs, tests/), the Bazel
+build files, scripts, workflows and documentation.
+
+No third-party source is vendored here. The Bazel build fetches pinned releases from the Bazel
+Central Registry and compiles them into libvyges_slang.a, which therefore also carries:
+  slang — https://github.com/MikePopoloski/slang — Copyright Michael Popoloski. MIT licence.
+  and its own dependencies as the module packages them (fmt — MIT; boost unordered/ headers it
+  bundles — Boost Software License 1.0), and the LLVM C++ runtime (libc++, libc++abi, libunwind;
+  Apache-2.0 WITH LLVM-exception) on Linux.
+Distributions of the archive reproduce those notices; the ci workflow collects them into the
+published bundle (licenses/).

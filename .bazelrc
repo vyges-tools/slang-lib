@@ -1,0 +1,21 @@
+# SPDX-License-Identifier: Apache-2.0
+common --enable_bzlmod
+common --check_direct_dependencies=off
+# slang's pinned source archive is served from this repository (see the file).
+common --downloader_config=bazel/downloader.cfg
+
+build --cxxopt=-std=c++20 --host_cxxopt=-std=c++20
+build -c opt
+build --copt=-O3
+
+# ⛔ No fused multiply-add contraction: each floating-point operation rounds as IEEE 754 says,
+# whatever the optimiser inlines (slang evaluates real-valued constant expressions).
+build --copt=-ffp-contract=off --host_copt=-ffp-contract=off
+
+build --dynamic_mode=off
+build --per_file_copt=.*external/.*@-w
+build --host_per_file_copt=.*external/.*@-w
+
+common --enable_platform_specific_config
+build:macos --macos_minimum_os=13.3
+build:macos --host_macos_minimum_os=13.3

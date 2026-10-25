@@ -1,0 +1,19 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Vyges
+
+load("@rules_cc//cc:cc_static_library.bzl", "cc_static_library")
+load("@rules_cc//cc:defs.bzl", "cc_library")
+
+cc_library(
+    name = "shim",
+    srcs = ["shim/vyges_slang.cc"],
+    hdrs = ["shim/vyges_slang.h"],
+    deps = ["@sv-lang//:libsvlang"],
+)
+
+# ONE archive with the shim and every object it needs (slang, fmt), so the Rust build links a
+# single `libvyges_slang.a` and nothing from the host.
+cc_static_library(
+    name = "vyges_slang",
+    deps = [":shim"],
+)
