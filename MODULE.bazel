@@ -31,3 +31,19 @@ register_toolchains(
     "@llvm//toolchain:all",
     dev_dependency = True,
 )
+
+# The synthesis frontend (povik/yosys-slang, ISC; renamed sv-elab upstream) at the commit the
+# reference synthesis engine takes as its submodule. Only its `src/` (the netlist frontend, built
+# without Yosys) and `third_party/hashlib` (public domain) are compiled, by OUR BUILD file: its own
+# BUILD files name the reference's packages and are removed. The frontend's netlist types and
+# backend are ours (`shim/elab/`). Keep in step with `slang-pin.yaml`.
+http_archive = use_repo_rule("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
+
+http_archive(
+    name = "sv_elab",
+    build_file = "//bazel:sv-elab.BUILD",
+    patch_cmds = ["rm -f src/BUILD third_party/BUILD third_party/hashlib/BUILD"],
+    sha256 = "ea31b4a205ebb1fe5ec3789bcd66f21f4975e73c0901622af667f843b833ff10",
+    strip_prefix = "sv-elab-82effc8d9541be69e1ed3ec44759a4449f5d9247",
+    urls = ["https://github.com/povik/yosys-slang/archive/82effc8d9541be69e1ed3ec44759a4449f5d9247.tar.gz"],
+)

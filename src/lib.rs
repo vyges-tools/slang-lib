@@ -9,6 +9,8 @@
 //! What comes back is what slang reported ([`Compilation::report`], its text as it prints it) and
 //! the elaborated design as slang serialises it to JSON ([`Compilation::ast_json`]).
 
+pub mod elab;
+
 use std::ffi::{c_char, CString};
 use std::sync::Mutex;
 

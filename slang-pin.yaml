@@ -10,11 +10,16 @@ slang:
 transitive:                      # as the reference's Bazel graph resolves them (MODULE.bazel)
   boost.unordered: "1.89.0.bcr.2"  # its BOOST_VERSION; slang asks 1.87.0
   fmt: "12.1.0"                    # slang asks 12.0.0
-next:
-  slang-elab: "povik/yosys-slang @ 82effc8 (frontend library only) — added when the synthesis engine needs it"
+sv-elab:                         # the synthesis frontend (MODULE.bazel http_archive `sv_elab`)
+  source: "povik/yosys-slang @ 82effc8d9541be69e1ed3ec44759a4449f5d9247"   # renamed sv-elab upstream
+  sha256: "ea31b4a205ebb1fe5ec3789bcd66f21f4975e73c0901622af667f843b833ff10"
+  why: "the commit the reference synthesis engine takes as its submodule (src/ and third_party/hashlib byte-identical)"
+  built: "src/*.cc with SLANG_NO_YOSYS + SLANG_MUX_LOWERING; netlist types, backend, logging and driver are ours (shim/elab, shim/vyges_slang_elab.cc)"
+  file_prefix: "third-party/slang-elab/ (-fmacro-prefix-map): __FILE__ in its errors reads as the reference build's"
 toolchain:
   bazel: "9.1.1"                 # .bazelversion
   llvm:  "0.8.18"                # hermetic LLVM Bazel module: the compiler is part of the pin
   flags: ["-c opt", "-O3", "-ffp-contract=off", "-std=c++20"]
 license:
   slang: MIT                     # LICENSE, Michael Popoloski
+  sv-elab: ISC                   # LICENSE, Martin Povišer; third_party/hashlib public domain

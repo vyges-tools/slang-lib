@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # Builds slang with Bazel and makes the bundle a Rust (or C) program links:
 #   <out>/lib/libvyges_slang.a   one relocatable object, only the `vyges_slang_*` C API global
-#   <out>/include/vyges_slang.h
+#   <out>/include/vyges_slang.h, vyges_slang_elab.h
 #
 # 🔑 WHY ONE PRELINKED, HIDDEN OBJECT. The hermetic toolchain builds slang against its own libc++ —
 # which is part of the pin: the C++ library decides sorts inside slang. The program linking this
@@ -55,7 +55,7 @@ if [ "$(uname -s)" = Darwin ]; then
   mkdir -p "$out/lib" "$out/include"
   rm -f "$out/lib/libvyges_slang.a"
   ZERO_AR_DATE=1 libtool -static -o "$out/lib/libvyges_slang.a" "$work/vyges_slang.o"   # no timestamp: reproducible
-  cp shim/vyges_slang.h "$out/include/"
+  cp shim/vyges_slang.h shim/vyges_slang_elab.h "$out/include/"
   cp slang-pin.yaml LICENSE NOTICE "$out/"
   echo "bundle.sh: $out/lib/libvyges_slang.a for aarch64-apple-darwin ($(wc -l < "$work/keep.txt" | tr -d ' ') C entry points)"
   exit 0
@@ -128,6 +128,6 @@ groups=$("${tool}readelf" -g --wide "$work/vyges_slang.o" | grep -c 'COMDAT grou
 mkdir -p "$out/lib" "$out/include"
 rm -f "$out/lib/libvyges_slang.a"
 "${tool}ar" rcsD "$out/lib/libvyges_slang.a" "$work/vyges_slang.o"
-cp shim/vyges_slang.h "$out/include/"
+cp shim/vyges_slang.h shim/vyges_slang_elab.h "$out/include/"
 cp slang-pin.yaml LICENSE NOTICE "$out/"
 echo "bundle.sh: $out/lib/libvyges_slang.a for $target ($(wc -l < "$work/keep.txt") C entry points)"

@@ -8,6 +8,8 @@ build files, scripts, workflows and documentation.
 No third-party source is vendored here. The Bazel build fetches pinned releases from the Bazel
 Central Registry and compiles them into libvyges_slang.a, which therefore also carries:
   slang — https://github.com/MikePopoloski/slang — Copyright Michael Popoloski. MIT licence.
+  sv-elab (formerly yosys-slang; its netlist frontend sources) — https://github.com/povik/yosys-slang
+  — Copyright Martin Povišer. ISC licence. Its bundled hashlib header is in the public domain.
   and its own dependencies as the module packages them (fmt — MIT; boost unordered/ headers it
   bundles — Boost Software License 1.0), and the LLVM C++ runtime (libc++, libc++abi, libunwind;
   Apache-2.0 WITH LLVM-exception) on Linux.

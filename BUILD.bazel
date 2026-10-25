@@ -11,9 +11,42 @@ cc_library(
     deps = ["@sv-lang//:libsvlang"],
 )
 
-# ONE archive with the shim and every object it needs (slang, fmt), so the Rust build links a
+# The synthesis frontend, built without Yosys: its sources (@sv_elab), our netlist types and
+# backend (`shim/elab/`), and the C API (`shim/vyges_slang_elab.*`).
+# 🔑 `__FILE__` in the frontend's "unimplemented" errors reads as the reference's build spells it
+# (`third-party/slang-elab/src/<file>`), so those messages match it byte for byte.
+cc_library(
+    name = "elab",
+    srcs = [
+        "shim/elab/backend_builder.h",
+        "shim/elab/ir.h",
+        "shim/elab/log_stubs.h",
+        "shim/vyges_slang_elab.cc",
+        "@sv_elab//:frontend_srcs",
+    ],
+    hdrs = ["shim/vyges_slang_elab.h"],
+    copts = [
+        "-Ishim/elab",
+        "-fmacro-prefix-map=external/+http_archive+sv_elab/=third-party/slang-elab/",
+    ],
+    local_defines = [
+        "SLANG_MUX_LOWERING",
+        "SLANG_NO_YOSYS",
+    ],
+    deps = [
+        "@fmt",
+        "@sv-lang//:libsvlang",
+        "@sv_elab//:frontend_hdrs",
+        "@sv_elab//:hashlib",
+    ],
+)
+
+# ONE archive with both shims and every object they need (slang, fmt), so the Rust build links a
 # single `libvyges_slang.a` and nothing from the host.
 cc_static_library(
     name = "vyges_slang",
-    deps = [":shim"],
+    deps = [
+        ":elab",
+        ":shim",
+    ],
 )

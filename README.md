@@ -27,6 +27,33 @@ let design = c.ast_json(true).unwrap();      // the elaborated design, as slang 
 Compilations are independent. The report is captured by redirecting the process's standard output
 and error for the call, so captured compilations take turns.
 
+### Netlist elaboration
+
+`elab::elaborate` runs the sv-elab synthesis frontend (built without Yosys) over a design and hands
+every netlist node it needs to **your** backend, in the order it needs them:
+
+```rust
+use vyges_slang_lib::elab::{elaborate, Backend, Call, ElabError, LogLevel};
+
+struct MyNetlist { /* ... */ }
+impl Backend for MyNetlist {
+    fn call(&mut self, graph: i32, call: Call<'_>) -> Result<Vec<u32>, ElabError> {
+        match call {
+            Call::Placeholder { width, .. } => Ok(self.new_nets(width)),
+            Call::Biop { op, a, b, y_width, .. } => Ok(self.binary(op, a, b, y_width)),
+            // ...
+            _ => Ok(Vec::new()),
+        }
+    }
+    fn log(&mut self, _: LogLevel, _: i32, msg: &str) { println!("{msg}") }
+}
+
+let top = elaborate(&["rtl/top.sv", "--top", "top"], None, &[], &mut my_netlist)?;
+```
+
+Nets are 32-bit ids your backend hands out; 0, 1 and 2 are the constants 0, 1 and x. Library cells
+can be offered as blackbox modules (`BlackboxCell`) for the design to instantiate.
+
 ## Pin
 
 - **slang `10.0.1-20260316-f04e8156`**: Bazel Central Registry module `sv-lang` (`MODULE.bazel`),

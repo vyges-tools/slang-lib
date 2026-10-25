@@ -18,7 +18,7 @@ use std::process::Command;
 fn main() {
     println!("cargo:rerun-if-env-changed=VYGES_SLANG_PREBUILT_DIR");
     println!("cargo:rerun-if-env-changed=VYGES_BAZEL");
-    for p in ["MODULE.bazel", "BUILD.bazel", ".bazelrc", ".bazelversion", "bazel/downloader.cfg", "shim", "scripts/bundle.sh"] {
+    for p in ["MODULE.bazel", "BUILD.bazel", ".bazelrc", ".bazelversion", "bazel", "shim", "scripts/bundle.sh"] {
         println!("cargo:rerun-if-changed={p}");
     }
 
