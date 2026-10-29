@@ -33,8 +33,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { target: x86_64-unknown-linux-gnu, runner: ubuntu-latest, bazelisk: bazelisk-linux-amd64 }
-          - { target: aarch64-unknown-linux-gnu, runner: ubuntu-24.04-arm, bazelisk: bazelisk-linux-arm64 }
+          - { target: x86_64-unknown-linux-gnu, runner: "ubuntu-${{ vars.VYGES_UBUNTU_VERSION || '24.04' }}", bazelisk: bazelisk-linux-amd64 }
+          - { target: aarch64-unknown-linux-gnu, runner: "ubuntu-${{ vars.VYGES_UBUNTU_VERSION || '24.04' }}-arm", bazelisk: bazelisk-linux-arm64 }
           - { target: aarch64-apple-darwin,      runner: macos-15,         bazelisk: bazelisk-darwin-arm64 }
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 300
@@ -152,7 +152,7 @@ jobs:
 
   lint:
     name: fmt-free lint
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-${{ vars.VYGES_UBUNTU_VERSION || '24.04' }}
     steps:
       - uses: actions/checkout@v7
       # ⛔ NO `cargo fmt --check`: these crates are hand-formatted.
