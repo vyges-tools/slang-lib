@@ -35,7 +35,7 @@ jobs:
         include:
           - { target: x86_64-unknown-linux-gnu, runner: "ubuntu-${{ vars.VYGES_UBUNTU_VERSION || '24.04' }}", bazelisk: bazelisk-linux-amd64 }
           - { target: aarch64-unknown-linux-gnu, runner: "ubuntu-${{ vars.VYGES_UBUNTU_VERSION || '24.04' }}-arm", bazelisk: bazelisk-linux-arm64 }
-          - { target: aarch64-apple-darwin,      runner: macos-15,         bazelisk: bazelisk-darwin-arm64 }
+          - { target: aarch64-apple-darwin,      runner: "macos-${{ vars.VYGES_MACOS_VERSION || '15' }}",         bazelisk: bazelisk-darwin-arm64 }
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 300
     env:
