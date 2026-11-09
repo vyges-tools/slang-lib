@@ -23,7 +23,20 @@ name="vyges-slang-$id-$target.tar.gz"
 url="https://github.com/vyges-tools/slang-lib/releases/download/bundle-$id"
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
-if ! curl -fsSL -o "$work/$name" "$url/$name" || ! curl -fsSL -o "$work/$name.sha256" "$url/$name.sha256"; then
+# One asset into $work. With a token (CI passes GH_TOKEN) and gh on PATH the download is an
+# authenticated API call: anonymous release downloads are rate-limited and time out first when
+# GitHub is under load. Otherwise curl, retrying timeouts and 5xx (not 404: a missing bundle
+# still fails at once, which is what the message below is for).
+token=${GH_TOKEN:-${GITHUB_TOKEN:-}}
+fetch() {
+  if [ -n "$token" ] && command -v gh >/dev/null 2>&1; then
+    GH_TOKEN=$token gh release download "bundle-$id" -R "vyges-tools/slang-lib" -p "$1" -O "$work/$1" --clobber \
+      && return 0
+    echo "fetch-bundle.sh: gh download of $1 failed, trying curl" >&2
+  fi
+  curl -fsSL --retry 5 --retry-delay 5 --retry-max-time 300 --connect-timeout 30 -o "$work/$1" "$url/$1"
+}
+if ! fetch "$name" || ! fetch "$name.sha256"; then
   echo "fetch-bundle.sh: no published bundle-$id ($url) — build it with scripts/bundle.sh, or push the input change to main so ci publishes it" >&2
   exit 1
 fi
