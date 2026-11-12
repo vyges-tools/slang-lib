@@ -85,7 +85,7 @@ jobs:
         if: steps.id.outputs.published != 'true'
         run: bash scripts/bundle.sh "$RUNNER_TEMP/bundle"
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.100.0
 
       # Against the bundle just fetched or built — the archive a consumer links, not a second build.
       - name: Test
