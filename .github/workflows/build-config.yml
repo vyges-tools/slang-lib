@@ -18,3 +18,5 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: vyges-tools/actions/build-config-check@v1.1.0
+        with:
+          build-config-ref: v0.1.2

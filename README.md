@@ -59,7 +59,8 @@ can be offered as blackbox modules (`BlackboxCell`) for the design to instantiat
 - **slang `10.0.1-20260316-f04e8156`**: Bazel Central Registry module `sv-lang` (`MODULE.bazel`),
   slang at source commit `f04e8156`.
 - the **hermetic LLVM** toolchain (Bazel module `llvm`), so the compiler is not the host's;
-- `-c opt -O3 -ffp-contract=off -std=c++20` (`.bazelrc`).
+- `-c opt -O3 -ffp-contract=off -std=c++20`, macOS minimum 15.0 (`build-config/common.bazelrc`,
+  the shared vyges-tools/build-config settings, imported by `.bazelrc`).
 
 `slang-pin.yaml` records the set. Bump on purpose, never to "latest".
 

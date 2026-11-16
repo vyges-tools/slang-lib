@@ -12,7 +12,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 inputs=(.bazelrc .bazelversion BUILD.bazel MODULE.bazel scripts/bundle.sh)
-while IFS= read -r f; do inputs+=("$f"); done < <(find bazel shim -type f | LC_ALL=C sort)
+while IFS= read -r f; do inputs+=("$f"); done < <(find bazel build-config shim -type f | LC_ALL=C sort)
 for f in "${inputs[@]}"; do
   printf '%s\n' "$f"
   sha256sum < "$f" 2>/dev/null || shasum -a 256 < "$f"

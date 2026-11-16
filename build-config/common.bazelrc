@@ -1,0 +1,46 @@
+# SPDX-License-Identifier: Apache-2.0
+# Flags shared by every Bazel-built native library. A library's own .bazelrc carries these lines
+# (a synced copy, or `import` of this file) plus only what is specific to it. scripts/check.py
+# fails a library whose .bazelrc lacks any non-comment line below. Values that also appear in
+# versions.toml (C++ standard, macOS minimum) must agree with it: `scripts/check.py --self`.
+
+# Bzlmod for dependency resolution. Our MODULE.bazel files pin exact versions; Bazel's check that
+# direct dependencies match the resolved graph is noise once those pins are deliberate.
+common --enable_bzlmod
+common --check_direct_dependencies=off
+
+# One C++ standard for the library AND everything built from source inside it (abseil in
+# particular changes its ABI with the standard, so a mismatch fails at link time or worse).
+# Host tools get the same, so a generator built for the host agrees with the target build.
+build --cxxopt=-std=c++20 --host_cxxopt=-std=c++20
+
+# Optimised build at -O3, as the reference builds its C++. `-c opt` alone gives the toolchain's
+# default level (-O2); the explicit copt comes later on the command line and wins.
+build -c opt
+build --copt=-O3
+
+# No floating-point contraction, on C and C++ (copt, not cxxopt, so C sources get it too), for
+# target and host. A contracted a*b+c rounds once instead of twice. Clang fuses it by default on
+# any target with FMA: aarch64 (Linux and macOS) has FMA in its baseline, and x86-64 has it once a
+# -march such as haswell is given. Checked 2026-11-16 on Compiler Explorer: x86-64 with no -march
+# gives a multiply then an add; aarch64 Linux, arm64 macOS and x86-64 -march=haswell give one
+# fused multiply-add; -ffp-contract=off restores two roundings on all of them. rustc never
+# contracts, so this flag is what keeps C/C++ results equal across targets and equal to Rust ports.
+build --copt=-ffp-contract=off --host_copt=-ffp-contract=off
+
+# Static archives only: the library is linked into a Rust binary, never loaded as a shared object.
+build --dynamic_mode=off
+
+# Silence warnings in external (third-party) sources; they are not ours to fix and drown real
+# diagnostics. Our own sources keep their warnings.
+build --per_file_copt=.*external/.*@-w
+build --host_per_file_copt=.*external/.*@-w
+
+# Per-platform sections (build:macos ...) apply automatically on their host.
+common --enable_platform_specific_config
+
+# Oldest macOS the archives run on: the macOS release we build and test on. Matches versions.toml
+# [macos] minimum and CMake's CMAKE_OSX_DEPLOYMENT_TARGET, so every native library links into one
+# binary without deployment-target warnings.
+build:macos --macos_minimum_os=15.0
+build:macos --host_macos_minimum_os=15.0
