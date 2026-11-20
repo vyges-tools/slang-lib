@@ -5,7 +5,7 @@
 # on slang's exact source and compiler.
 slang:
   module: "10.0.1-20260316-f04e8156"   # Bazel Central Registry module `sv-lang` (MikePopoloski/slang @ f04e8156)
-  why: "the slang the reference synthesis frontend builds on: its Bazel module and its CMake submodule are the same commit"
+  why: "the slang the reference synthesis frontend built on until OpenROAD 68012c6676f (2026-10-18). ⚠️ BEHIND THE PIN: at 4155ac31 the reference takes slang through the BCR module sv-elab 2026-10-13 (slang 12.0, 545f88b); moves at the next repin"
   patches: []
 transitive:                      # as the reference's Bazel graph resolves them (MODULE.bazel)
   boost.unordered: "1.89.0.bcr.2"  # its BOOST_VERSION; slang asks 1.87.0
@@ -13,7 +13,7 @@ transitive:                      # as the reference's Bazel graph resolves them 
 sv-elab:                         # the synthesis frontend (MODULE.bazel http_archive `sv_elab`)
   source: "povik/yosys-slang @ 82effc8d9541be69e1ed3ec44759a4449f5d9247"   # renamed sv-elab upstream
   sha256: "ea31b4a205ebb1fe5ec3789bcd66f21f4975e73c0901622af667f843b833ff10"
-  why: "the commit the reference synthesis engine takes as its submodule (src/ and third_party/hashlib byte-identical)"
+  why: "the reference synthesis engine's submodule until OpenROAD 68012c6676f (2026-10-18). ⚠️ BEHIND THE PIN: 4155ac31 has 3e152133 (204 mainline commits; 82effc8 is on a side branch). Folded into the next repin, shim/elab re-ported once"
   built: "src/*.cc with SLANG_NO_YOSYS + SLANG_MUX_LOWERING; netlist types, backend, logging and driver are ours (shim/elab, shim/vyges_slang_elab.cc)"
   file_prefix: "third-party/slang-elab/ (-fmacro-prefix-map): __FILE__ in its errors reads as the reference build's"
 toolchain:
