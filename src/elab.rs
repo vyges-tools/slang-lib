@@ -135,15 +135,27 @@ pub enum Call<'a> {
     Placeholder { width: u64, name: &'a str, public_name: bool },
     Connect { target: &'a [u32], source: &'a [u32] },
     SetInit { signal: &'a [u32], init: &'a [u32] },
-    MemoryInit { name: &'a str, bit_offset: u64, big_endian: bool, data: &'a [u32] },
+    /// Initial data for memory `memory` (its number from [`Call::Memory`]).
+    MemoryInit { memory: u32, bit_offset: u64, big_endian: bool, data: &'a [u32] },
     Input { name: &'a str, signal: &'a [u32] },
     Output { name: &'a str, signal: &'a [u32] },
+    /// A hierarchical (not dissolved) instance of module `cell_type`.
     Instance { cell_type: &'a str, ports: Vec<Port<'a>> },
+    /// A blackbox cell: its output ports' values are placeholders the embedder drives.
+    /// Parameter values are not carried.
+    Blackbox { cell_type: &'a str, name: &'a str, ports: Vec<Port<'a>> },
     DualEdgeAldff { base_name: &'a str, clk: &'a [u32], aload: &'a [u32], d: &'a [u32], q: &'a [u32], ad: &'a [u32], aload_polarity: bool },
     Dff { name: &'a str, clk: &'a [u32], d: &'a [u32], q: &'a [u32], clk_polarity: bool },
     Dffe { name: &'a str, clk: &'a [u32], en: &'a [u32], d: &'a [u32], q: &'a [u32], clk_polarity: bool, en_polarity: bool },
     Aldff { name: &'a str, clk: &'a [u32], aload: &'a [u32], d: &'a [u32], q: &'a [u32], ad: &'a [u32], clk_polarity: bool, aload_polarity: bool },
     NewGraph { module: &'a str },
+    Aldffe { name: &'a str, clk: &'a [u32], en: &'a [u32], aload: &'a [u32], d: &'a [u32], q: &'a [u32], ad: &'a [u32], clk_polarity: bool, en_polarity: bool, aload_polarity: bool },
+    /// A memory of `width`-bit words over the address range `left..right` as declared. Memories are
+    /// numbered 0, 1, ... per graph in request order; the later requests name them by number.
+    Memory { name: &'a str, width: u64, left: i64, right: i64 },
+    ReadPort { memory: u32, address: &'a [u32], data: &'a [u32] },
+    /// Write ports are numbered 0, 1, ... per graph in request order; `preceding` holds numbers.
+    WritePort { memory: u32, preceding: &'a [u32], clocked: bool, clock_polarity: bool, clk: &'a [u32], enable: &'a [u32], address: &'a [u32], data: &'a [u32] },
 }
 
 /// An error that ends the elaboration: a message code and its text.
@@ -222,11 +234,14 @@ mod ffi {
         pub graph: c_int,
         pub method: c_int,
         pub op: c_int,
-        pub v: [Value; 5],
-        pub flag: [c_int; 2],
+        pub v: [Value; 6],
+        pub flag: [c_int; 3],
         pub width: u64,
+        pub range: [i64; 2],
         pub name: *const c_char,
         pub name_len: usize,
+        pub name2: *const c_char,
+        pub name2_len: usize,
         pub ports: *const Port,
         pub nports: usize,
     }
@@ -321,24 +336,49 @@ unsafe fn decode<'a>(c: &'a ffi::Call) -> Result<Call<'a>, ElabError> {
         8 => Call::Placeholder { width: c.width, name, public_name: f(0) },
         9 => Call::Connect { target: v(0), source: v(1) },
         10 => Call::SetInit { signal: v(0), init: v(1) },
-        11 => Call::MemoryInit { name, bit_offset: c.width, big_endian: f(0), data: v(0) },
+        11 => Call::MemoryInit { memory: c.op as u32, bit_offset: c.width, big_endian: f(0), data: v(0) },
         12 => Call::Input { name, signal: v(0) },
         13 => Call::Output { name, signal: v(0) },
-        14 => {
-            let raw = if c.nports == 0 { &[][..] } else { std::slice::from_raw_parts(c.ports, c.nports) };
-            let ports = raw
-                .iter()
-                .map(|p| Port { name: text(p.name, p.name_len), direction: Dir::from_code(p.direction), value: slice(p.value) })
-                .collect();
-            Call::Instance { cell_type: name, ports }
-        }
+        14 => Call::Instance { cell_type: name, ports: ports(c) },
         15 => Call::DualEdgeAldff { base_name: name, clk: v(0), aload: v(1), d: v(2), q: v(3), ad: v(4), aload_polarity: f(0) },
         16 => Call::Dff { name, clk: v(0), d: v(1), q: v(2), clk_polarity: f(0) },
         17 => Call::Dffe { name, clk: v(0), en: v(1), d: v(2), q: v(3), clk_polarity: f(0), en_polarity: f(1) },
         18 => Call::Aldff { name, clk: v(0), aload: v(1), d: v(2), q: v(3), ad: v(4), clk_polarity: f(0), aload_polarity: f(1) },
         19 => Call::NewGraph { module: name },
+        20 => Call::Aldffe {
+            name,
+            clk: v(0),
+            en: v(1),
+            aload: v(2),
+            d: v(3),
+            q: v(4),
+            ad: v(5),
+            clk_polarity: f(0),
+            en_polarity: f(1),
+            aload_polarity: f(2),
+        },
+        21 => Call::Blackbox { cell_type: name, name: text(c.name2, c.name2_len), ports: ports(c) },
+        22 => Call::Memory { name, width: c.width, left: c.range[0], right: c.range[1] },
+        23 => Call::ReadPort { memory: c.op as u32, address: v(0), data: v(1) },
+        24 => Call::WritePort {
+            memory: c.op as u32,
+            preceding: v(4),
+            clocked: f(0),
+            clock_polarity: f(1),
+            clk: v(0),
+            enable: v(1),
+            address: v(2),
+            data: v(3),
+        },
         _ => return Err(bad(c)),
     })
+}
+
+unsafe fn ports<'a>(c: &'a ffi::Call) -> Vec<Port<'a>> {
+    let raw = if c.nports == 0 { &[][..] } else { std::slice::from_raw_parts(c.ports, c.nports) };
+    raw.iter()
+        .map(|p| Port { name: text(p.name, p.name_len), direction: Dir::from_code(p.direction), value: slice(p.value) })
+        .collect()
 }
 
 fn bad(c: &ffi::Call) -> ElabError {

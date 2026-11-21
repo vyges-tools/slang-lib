@@ -10,12 +10,10 @@ slang:
 transitive:                      # as the reference's Bazel graph resolves them (MODULE.bazel)
   boost.unordered: "1.89.0.bcr.2"  # its BOOST_VERSION; slang asks 1.87.0
   fmt: "12.1.0"                    # slang asks 12.0.0
-# ⚠️ repin-f11b4276 branch, WORK IN PROGRESS (2026-11-21): MODULE.bazel takes BCR sv-elab 2026-11-09 +
-# sv-lang 12.1.0 (the reference's pair at OpenROAD f11b4276). //:shim builds; //:elab does not yet: shim/elab
-# mirrors the OLD backend API (10 new or changed pure virtuals: add_memory, add_read_port, add_write_port,
-# add_memory_init(memory,...), instantiate_blackbox, add_aldffe, and ir::Net clocks/enables on the dff family),
-# and vyges_slang_elab.cc builds SyntaxList/SeparatedSyntaxList with the slang 10 constructors. The entry below
-# describes main until the re-port lands.
+# ⚠️ repin-f11b4276 branch (2026-11-21): MODULE.bazel takes BCR sv-elab 2026-11-09 + sv-lang 12.1.0 (the
+# reference's pair at OpenROAD f11b4276); shim/elab re-ported to its backend interface (aldffe, blackbox
+# instantiation, memories by number, Net clocks), slang 12 syntax lists, internal errors -> 73/74. The entry
+# below still describes main until the branch merges with the pin.
 sv-elab:                         # the synthesis frontend (MODULE.bazel http_archive `sv_elab`)
   source: "povik/yosys-slang @ 82effc8d9541be69e1ed3ec44759a4449f5d9247"   # renamed sv-elab upstream
   sha256: "ea31b4a205ebb1fe5ec3789bcd66f21f4975e73c0901622af667f843b833ff10"

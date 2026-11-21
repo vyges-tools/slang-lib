@@ -2,7 +2,7 @@
 // Copyright 2026 Vyges
 //
 // The synthesis frontend behind the C API in vyges_slang_elab.h: the hooks the frontend expects
-// from its embedder (logging, "unimplemented" errors, attributes), the backend that forwards every
+// from its embedder (logging, attributes), the backend that forwards every
 // netlist request to the caller, the library blackboxes, and the elaboration driver.
 
 #include "shim/vyges_slang_elab.h"
@@ -45,11 +45,9 @@
 
 namespace {
 
-// The elaboration in progress on this thread: where the frontend's logging and errors go, and the
-// sources that place an AST node.
+// The elaboration in progress on this thread: where the frontend's logging and errors go.
 struct Current {
   const slang_frontend::ElabBridge* bridge = nullptr;
-  const slang::SourceManager* sources = nullptr;
 };
 thread_local Current current;
 
@@ -117,81 +115,8 @@ void log_error(const char* fmt, ...) {
 namespace slang_frontend {
 
 // ---- constructs the frontend does not elaborate ----
-
-namespace {
-
-// `file:line:column` of a location in a loaded source; empty for anything else.
-std::string where(slang::SourceLocation loc) {
-  const slang::SourceManager* sm = current.sources;
-  if (!sm || !sm->isFileLoc(loc)) return {};
-  return std::string(sm->getFileName(loc)) + ":" + std::to_string(sm->getLineNumber(loc)) + ":" +
-         std::to_string(sm->getColumnNumber(loc));
-}
-
-// The source text of a node on one line: comments and directives dropped, every run of
-// whitespace one space (none leading), cut at 120 characters with "..." after.
-std::string one_line(const slang::syntax::SyntaxNode& node) {
-  slang::syntax::SyntaxPrinter printer;
-  printer.setIncludeComments(false).setIncludeDirectives(false).print(node);
-  std::string out;
-  bool gap = false;
-  for (char c : printer.str()) {
-    if (std::isspace(static_cast<unsigned char>(c))) {
-      gap = true;
-      continue;
-    }
-    if (gap && !out.empty()) out += ' ';
-    gap = false;
-    out += c;
-  }
-  constexpr size_t kMax = 120;
-  if (out.size() > kMax) {
-    out.resize(kMax);
-    out += "...";
-  }
-  return out;
-}
-
-// "Feature unimplemented at FILE:LINE[: CONDITION] (WHAT kind: KIND)[ at LOC][: SOURCE]"
-[[noreturn]] void report_unimplemented(int code, const char* file, int line, const char* condition,
-                                std::string_view what, const std::string& kind, slang::SourceLocation loc,
-                                const slang::syntax::SyntaxNode* syntax) {
-  std::string msg = "Feature unimplemented at " + std::string(file) + ":" + std::to_string(line);
-  if (condition) msg += std::string(": ") + condition;
-  msg += " (" + std::string(what) + " kind: " + kind + ")";
-  const std::string at = where(loc);
-  if (!at.empty()) msg += " at " + at;
-  if (syntax) msg += ": " + one_line(*syntax);
-  fail(code, std::move(msg));
-}
-
-}  // namespace
-
-void unimplemented_(const ast::Symbol& obj, const char* file, int line, const char* condition) {
-  // A symbol is shown with its name when it has one.
-  std::string kind(slang::ast::toString(obj.kind));
-  if (!obj.name.empty()) kind += " '" + std::string(obj.name) + "'";
-  report_unimplemented(73, file, line, condition, "symbol", kind, obj.location, obj.getSyntax());
-}
-
-void unimplemented_(const ast::Expression& obj, const char* file, int line, const char* condition) {
-  report_unimplemented(74, file, line, condition, "expression", std::string(slang::ast::toString(obj.kind)),
-                obj.sourceRange.start(), obj.syntax);
-}
-
-void unimplemented_(const ast::Statement& obj, const char* file, int line, const char* condition) {
-  report_unimplemented(75, file, line, condition, "statement", std::string(slang::ast::toString(obj.kind)),
-                obj.sourceRange.start(), obj.syntax);
-}
-
-void unimplemented_(const ast::TimingControl& obj, const char* file, int line, const char* condition) {
-  report_unimplemented(76, file, line, condition, "timing control", std::string(slang::ast::toString(obj.kind)),
-                obj.sourceRange.start(), obj.syntax);
-}
-
-void wire_missing_(NetlistContext&, const ast::Symbol&, const char* file, int line) {
-  fail(77, "Wire missing at " + std::string(file) + ":" + std::to_string(line));
-}
+// From sv-elab 2026-11-09 the frontend raises them itself (`unimplemented`, `wire_missing`): an
+// InternalError, which the driver below turns into error 73 or 74 as the reference's does.
 
 void transfer_attrs(NetlistContext&, const ast::Symbol&, AttributeGuard&) {}
 void transfer_attrs(NetlistContext&, const ast::Statement&, AttributeGuard&) {}
@@ -362,11 +287,60 @@ void BackendGraphBuilder::set_initialization(ir::Value signal, ir::Const init_va
   send(c);
 }
 
-void BackendGraphBuilder::add_memory_init(std::string_view name, uint64_t bit_offset, bool big_endian,
+template <typename T>
+uint32_t BackendGraphBuilder::number_of(const std::vector<std::unique_ptr<T>>& all, const T* p) {
+  for (size_t k = 0; k < all.size(); k++)
+    if (all[k].get() == p) return static_cast<uint32_t>(k);
+  fail(1, "a memory or write port this graph did not create");
+}
+
+// Memories: the frontend's order of requests is kept; the objects it holds are ours, by number.
+ir::Memory* BackendGraphBuilder::add_memory(std::string_view name, uint64_t width, slang::ConstantRange range) {
+  vyges_slang_call c = request(VYGES_SLANG_MEMORY);
+  set_name(c, name);
+  c.width = width;
+  c.range[0] = range.left;
+  c.range[1] = range.right;
+  send(c);
+  memories_.push_back(std::make_unique<ir::Memory>());
+  return memories_.back().get();
+}
+
+void BackendGraphBuilder::add_read_port(ir::Memory* memory, ir::Value address, ir::Value data) {
+  vyges_slang_call c = request(VYGES_SLANG_READ_PORT);
+  c.op = static_cast<int>(number_of(memories_, memory));
+  c.v[0] = view(address);
+  c.v[1] = view(data);
+  send(c);
+}
+
+ir::WritePort* BackendGraphBuilder::add_write_port(ir::Memory* memory, std::span<ir::WritePort*> preceding,
+                                                   bool clocked, bool clock_polarity, ir::Net clk,
+                                                   const ir::Value& enable, const ir::Value& address,
+                                                   const ir::Value& data) {
+  const ir::Value clk_v(clk);
+  std::vector<uint32_t> before;
+  before.reserve(preceding.size());
+  for (ir::WritePort* p : preceding) before.push_back(number_of(write_ports_, p));
+  vyges_slang_call c = request(VYGES_SLANG_WRITE_PORT);
+  c.op = static_cast<int>(number_of(memories_, memory));
+  c.flag[0] = clocked;
+  c.flag[1] = clock_polarity;
+  c.v[0] = view(clk_v);
+  c.v[1] = view(enable);
+  c.v[2] = view(address);
+  c.v[3] = view(data);
+  c.v[4] = {before.data(), before.size()};
+  send(c);
+  write_ports_.push_back(std::make_unique<ir::WritePort>());
+  return write_ports_.back().get();
+}
+
+void BackendGraphBuilder::add_memory_init(ir::Memory* memory, uint64_t bit_offset, bool big_endian,
                                           ir::Const data) {
   const std::vector<uint32_t> bits = nets_of(data);
   vyges_slang_call c = request(VYGES_SLANG_MEMORY_INIT);
-  set_name(c, name);
+  c.op = static_cast<int>(number_of(memories_, memory));
   c.width = bit_offset;
   c.flag[0] = big_endian;
   c.v[0] = {bits.data(), bits.size()};
@@ -387,28 +361,49 @@ void BackendGraphBuilder::add_output(std::string_view name, ir::Value signal) {
   send(c);
 }
 
-void BackendGraphBuilder::add_instance(std::string_view cell_type, std::vector<PortConnection> ports) {
+namespace {
+template <typename Ports>
+std::vector<vyges_slang_port> wire_ports(const Ports& ports) {
   std::vector<vyges_slang_port> wire(ports.size());
   for (size_t i = 0; i < ports.size(); i++) {
-    const PortConnection& p = ports[i];
+    const BackendGraphBuilderBase::PortConnection& p = ports[i];
     wire[i].name = p.name.data();
     wire[i].name_len = p.name.size();
-    wire[i].direction = p.direction == PortConnection::kInput    ? VYGES_SLANG_DIR_INPUT
-                        : p.direction == PortConnection::kOutput ? VYGES_SLANG_DIR_OUTPUT
-                                                                 : VYGES_SLANG_DIR_INOUT;
+    wire[i].direction = p.direction == BackendGraphBuilderBase::PortConnection::kInput    ? VYGES_SLANG_DIR_INPUT
+                        : p.direction == BackendGraphBuilderBase::PortConnection::kOutput ? VYGES_SLANG_DIR_OUTPUT
+                                                                                          : VYGES_SLANG_DIR_INOUT;
     wire[i].value = view(p.value);
   }
+  return wire;
+}
+}  // namespace
+
+void BackendGraphBuilder::add_instance(std::string_view cell_type, std::vector<PortConnection> ports) {
+  const std::vector<vyges_slang_port> wire = wire_ports(ports);
   vyges_slang_call c = request(VYGES_SLANG_INSTANCE);
   set_name(c, cell_type);
   send(c, wire.data(), wire.size());
 }
 
-void BackendGraphBuilder::add_dual_edge_aldff(const std::string& base_name, ir::Value clk, ir::Value aload,
-                                              ir::Value d, ir::Value q, ir::Value ad, bool aload_polarity) {
+void BackendGraphBuilder::instantiate_blackbox(std::string_view cell_type, std::string_view name,
+                                               std::span<PortConnection> port_connections,
+                                               std::span<ParameterValue>) {
+  const std::vector<vyges_slang_port> wire = wire_ports(port_connections);
+  vyges_slang_call c = request(VYGES_SLANG_BLACKBOX);
+  set_name(c, cell_type);
+  c.name2 = name.data();
+  c.name2_len = name.size();
+  send(c, wire.data(), wire.size());
+}
+
+void BackendGraphBuilder::add_dual_edge_aldff(const std::string& base_name, ir::Net clk, ir::Net aload,
+                                              const ir::Value& d, const ir::Value& q, const ir::Value& ad,
+                                              bool aload_polarity) {
+  const ir::Value clk_v(clk), aload_v(aload);
   vyges_slang_call c = request(VYGES_SLANG_DUAL_EDGE_ALDFF);
   set_name(c, base_name);
-  c.v[0] = view(clk);
-  c.v[1] = view(aload);
+  c.v[0] = view(clk_v);
+  c.v[1] = view(aload_v);
   c.v[2] = view(d);
   c.v[3] = view(q);
   c.v[4] = view(ad);
@@ -416,24 +411,26 @@ void BackendGraphBuilder::add_dual_edge_aldff(const std::string& base_name, ir::
   send(c);
 }
 
-void BackendGraphBuilder::add_dff(std::string_view name, const ir::Value& clk, const ir::Value& d,
+void BackendGraphBuilder::add_dff(std::string_view name, const ir::Net clk, const ir::Value& d,
                                   const ir::Value& q, bool clk_polarity) {
+  const ir::Value clk_v(clk);
   vyges_slang_call c = request(VYGES_SLANG_DFF);
   set_name(c, name);
-  c.v[0] = view(clk);
+  c.v[0] = view(clk_v);
   c.v[1] = view(d);
   c.v[2] = view(q);
   c.flag[0] = clk_polarity;
   send(c);
 }
 
-void BackendGraphBuilder::add_dffe(std::string_view name, const ir::Value& clk, const ir::Value& en,
+void BackendGraphBuilder::add_dffe(std::string_view name, const ir::Net clk, const ir::Net en,
                                    const ir::Value& d, const ir::Value& q, bool clk_polarity,
                                    bool en_polarity) {
+  const ir::Value clk_v(clk), en_v(en);
   vyges_slang_call c = request(VYGES_SLANG_DFFE);
   set_name(c, name);
-  c.v[0] = view(clk);
-  c.v[1] = view(en);
+  c.v[0] = view(clk_v);
+  c.v[1] = view(en_v);
   c.v[2] = view(d);
   c.v[3] = view(q);
   c.flag[0] = clk_polarity;
@@ -441,18 +438,38 @@ void BackendGraphBuilder::add_dffe(std::string_view name, const ir::Value& clk, 
   send(c);
 }
 
-void BackendGraphBuilder::add_aldff(std::string_view name, const ir::Value& clk, const ir::Value& aload,
+void BackendGraphBuilder::add_aldff(std::string_view name, const ir::Net clk, const ir::Net aload,
                                     const ir::Value& d, const ir::Value& q, const ir::Value& ad,
                                     bool clk_polarity, bool aload_polarity) {
+  const ir::Value clk_v(clk), aload_v(aload);
   vyges_slang_call c = request(VYGES_SLANG_ALDFF);
   set_name(c, name);
-  c.v[0] = view(clk);
-  c.v[1] = view(aload);
+  c.v[0] = view(clk_v);
+  c.v[1] = view(aload_v);
   c.v[2] = view(d);
   c.v[3] = view(q);
   c.v[4] = view(ad);
   c.flag[0] = clk_polarity;
   c.flag[1] = aload_polarity;
+  send(c);
+}
+
+void BackendGraphBuilder::add_aldffe(std::string_view name, const ir::Net clk, const ir::Net en,
+                                     const ir::Net aload, const ir::Value& d, const ir::Value& q,
+                                     const ir::Value& ad, bool clk_polarity, bool en_polarity,
+                                     bool aload_polarity) {
+  const ir::Value clk_v(clk), en_v(en), aload_v(aload);
+  vyges_slang_call c = request(VYGES_SLANG_ALDFFE);
+  set_name(c, name);
+  c.v[0] = view(clk_v);
+  c.v[1] = view(en_v);
+  c.v[2] = view(aload_v);
+  c.v[3] = view(d);
+  c.v[4] = view(q);
+  c.v[5] = view(ad);
+  c.flag[0] = clk_polarity;
+  c.flag[1] = en_polarity;
+  c.flag[2] = aload_polarity;
   send(c);
 }
 
@@ -481,7 +498,7 @@ class BlackboxBuilder {
   void finish(SourceManager& sources) {
     if (modules_.empty()) return;
     auto* unit = alloc_.emplace<CompilationUnitSyntax>(
-        *comp_.emplace<SyntaxList<MemberSyntax>>(modules_.copy(comp_)), tok(TokenKind::EndOfFile));
+        *comp_.emplace<SyntaxList<MemberSyntax>>(alloc_, modules_.copy(comp_)), tok(TokenKind::EndOfFile));
     auto tree = std::make_shared<SyntaxTree>(unit, sources, std::move(alloc_), &comp_.getDefaultLibrary(),
                                              nullptr);
     tree->isLibraryUnit = true;
@@ -531,7 +548,7 @@ class BlackboxBuilder {
           bare(TokenKind::CloseBracket)));
     }
     auto* type = alloc_.emplace<ImplicitTypeSyntax>(
-        Token(), *alloc_.emplace<SyntaxList<VariableDimensionSyntax>>(dims.copy(comp_)), Token());
+        Token(), *alloc_.emplace<SyntaxList<VariableDimensionSyntax>>(alloc_, dims.copy(comp_)), Token());
     auto* header = alloc_.emplace<VariablePortHeaderSyntax>(Token(), tok(dir, {}, false, true), Token(), *type);
     auto* decl = alloc_.emplace<DeclaratorSyntax>(tok(TokenKind::Identifier, p.name, true),
                                                   none<VariableDimensionSyntax>(), nullptr);
@@ -546,7 +563,7 @@ class BlackboxBuilder {
       ports.push_back(port(cell.ports[i]));
     }
     auto* port_list = alloc_.emplace<AnsiPortListSyntax>(
-        tok(TokenKind::OpenParenthesis), *alloc_.emplace<SeparatedSyntaxList<MemberSyntax>>(ports.copy(comp_)),
+        tok(TokenKind::OpenParenthesis), *alloc_.emplace<SeparatedSyntaxList<MemberSyntax>>(alloc_, ports.copy(comp_)),
         tok(TokenKind::CloseParenthesis));
     auto* header = alloc_.emplace<ModuleHeaderSyntax>(
         SyntaxKind::ModuleHeader, tok(TokenKind::ModuleKeyword, {}, false, true), Token(),
@@ -558,11 +575,11 @@ class BlackboxBuilder {
     SmallVector<AttributeInstanceSyntax*, 2> attrs;
     attrs.push_back(alloc_.emplace<AttributeInstanceSyntax>(
         tok(TokenKind::OpenParenthesis), tok(TokenKind::Star),
-        *alloc_.emplace<SeparatedSyntaxList<AttributeSpecSyntax>>(spec.copy(comp_)),
+        *alloc_.emplace<SeparatedSyntaxList<AttributeSpecSyntax>>(alloc_, spec.copy(comp_)),
         tok(TokenKind::Star, {}, true), tok(TokenKind::CloseParenthesis)));
 
     return alloc_.emplace<ModuleDeclarationSyntax>(
-        SyntaxKind::ModuleDeclaration, *alloc_.emplace<SyntaxList<AttributeInstanceSyntax>>(attrs.copy(comp_)),
+        SyntaxKind::ModuleDeclaration, *alloc_.emplace<SyntaxList<AttributeInstanceSyntax>>(alloc_, attrs.copy(comp_)),
         *header, none<MemberSyntax>(), tok(TokenKind::EndModuleKeyword, {}, false, true), nullptr);
   }
 
@@ -591,7 +608,6 @@ std::optional<std::string> elaborate(int argc, const char* const* argv, const ch
     ~Scope() { current = saved; }
   } scope;
   current.bridge = &bridge;
-  current.sources = &driver.sourceManager;
 
   SynthesisSettings settings;
   settings.addOptions(driver.cmdLine);
@@ -631,20 +647,33 @@ std::optional<std::string> elaborate(int argc, const char* const* argv, const ch
   }
   if (tops.size() != 1) fail(78, "Expected exactly one top-level module, got " + std::to_string(tops.size()));
 
-  HierarchyQueue hqueue;
-  NetlistContext netlist(std::make_unique<BackendGraphBuilder>(bridge, 0), settings, *compilation, *tops[0]);
-  populate_netlist(hqueue, netlist);
+  // The frontend's internal error ends the elaboration as error 73 (with its source location,
+  // resolved through macro expansions) or 74 (without one), as the reference's driver reports it.
+  try {
+    HierarchyQueue hqueue;
+    NetlistContext netlist(std::make_unique<BackendGraphBuilder>(bridge, 0), settings, *compilation, *tops[0]);
+    populate_netlist(hqueue, netlist);
 
-  // The frontend's own diagnostics: sorted, each once.
-  Diagnostics diags;
-  diags.append_range(netlist.issued_diagnostics);
-  diags.sort(driver.sourceManager);
-  for (size_t i = 0; i < diags.size(); i++) {
-    if (i > 0 && diags[i] == diags[i - 1]) continue;
-    driver.diagEngine.issue(diags[i]);
+    // The frontend's own diagnostics: sorted, each once.
+    Diagnostics diags;
+    diags.append_range(netlist.issued_diagnostics);
+    diags.sort(driver.sourceManager);
+    for (size_t i = 0; i < diags.size(); i++) {
+      if (i > 0 && diags[i] == diags[i - 1]) continue;
+      driver.diagEngine.issue(diags[i]);
+    }
+    if (!driver.reportDiagnostics(/*quiet=*/false)) return {};
+    return std::string(tops[0]->name);
+  } catch (InternalError& exc) {
+    if (exc.range.start().valid()) {
+      const SourceLocation at = driver.sourceManager.getFullyOriginalLoc(exc.range.start());
+      fail(73, "language frontend raised an internal error attached to source location " +
+                   std::string(driver.sourceManager.getFileName(at)) + ":" +
+                   std::to_string(driver.sourceManager.getLineNumber(at)) + ":" +
+                   std::to_string(driver.sourceManager.getColumnNumber(at)) + ": " + exc.what());
+    }
+    fail(74, std::string("language frontend raised an internal error: ") + exc.what());
   }
-  if (!driver.reportDiagnostics(/*quiet=*/false)) return {};
-  return std::string(tops[0]->name);
 }
 
 }  // namespace

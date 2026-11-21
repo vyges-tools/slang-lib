@@ -40,18 +40,31 @@ enum {
   VYGES_SLANG_PLACEHOLDER = 8,  // width; name = suggestion; flag[0] public name -> value
   VYGES_SLANG_CONNECT = 9,      // v[0] target, v[1] source
   VYGES_SLANG_SET_INIT = 10,    // v[0] signal, v[1] init (constant)
-  VYGES_SLANG_MEMORY_INIT = 11, // name; width = bit offset; flag[0] big endian; v[0] data (constant)
+  VYGES_SLANG_MEMORY_INIT = 11, // op = memory id (from MEMORY); width = bit offset; flag[0] big endian;
+                                //   v[0] data (constant)
   VYGES_SLANG_INPUT = 12,       // name; v[0] signal
   VYGES_SLANG_OUTPUT = 13,      // name; v[0] signal
-  VYGES_SLANG_INSTANCE = 14,    // name = cell type; ports[nports]
-  VYGES_SLANG_DUAL_EDGE_ALDFF = 15, // name = base name; v[0] clk, v[1] aload, v[2] d, v[3] q, v[4] ad;
+  VYGES_SLANG_INSTANCE = 14,    // name = module type; ports[nports]: a hierarchical (not dissolved) instance
+  VYGES_SLANG_DUAL_EDGE_ALDFF = 15, // name = base name; v[0] clk (one net), v[1] aload (one net), v[2] d,
+                                    //   v[3] q, v[4] ad;
                                     //   flag[0] aload polarity
-  VYGES_SLANG_DFF = 16,         // name; v[0] clk, v[1] d, v[2] q; flag[0] clk polarity
-  VYGES_SLANG_DFFE = 17,        // name; v[0] clk, v[1] en, v[2] d, v[3] q; flag[0] clk polarity,
+  VYGES_SLANG_DFF = 16,         // name; v[0] clk (one net), v[1] d, v[2] q; flag[0] clk polarity
+  VYGES_SLANG_DFFE = 17,        // name; v[0] clk, v[1] en (one net each), v[2] d, v[3] q; flag[0] clk polarity,
                                 //   flag[1] en polarity
-  VYGES_SLANG_ALDFF = 18,       // name; v[0] clk, v[1] aload, v[2] d, v[3] q, v[4] ad;
+  VYGES_SLANG_ALDFF = 18,       // name; v[0] clk, v[1] aload (one net each), v[2] d, v[3] q, v[4] ad;
                                 //   flag[0] clk polarity, flag[1] aload polarity
   VYGES_SLANG_NEW_GRAPH = 19,   // `graph` is a new graph, for an instance of module `name`
+  VYGES_SLANG_ALDFFE = 20,      // name; v[0] clk, v[1] en, v[2] aload (one net each), v[3] d, v[4] q, v[5] ad;
+                                //   flag[0] clk polarity, flag[1] en polarity, flag[2] aload polarity
+  VYGES_SLANG_BLACKBOX = 21,    // name = cell type, name2 = instance name; ports[nports]. Parameter values
+                                //   are not carried.
+  VYGES_SLANG_MEMORY = 22,      // name; width = word width; range[0] left, range[1] right of the address
+                                //   range. Memories are numbered 0, 1, ... per graph, in request order: the
+                                //   id later requests carry in `op`.
+  VYGES_SLANG_READ_PORT = 23,   // op = memory id; v[0] address, v[1] data
+  VYGES_SLANG_WRITE_PORT = 24,  // op = memory id; flag[0] clocked, flag[1] clock polarity; v[0] clk (one net),
+                                //   v[1] enable, v[2] address, v[3] data, v[4] the ids of the preceding write
+                                //   ports (write ports are numbered 0, 1, ... per graph, in request order)
 };
 
 // Unary operator codes: slang's UnaryOperator, in its order.
@@ -92,11 +105,14 @@ typedef struct {
   int graph;
   int method;
   int op;
-  vyges_slang_value v[5];
-  int flag[2];
+  vyges_slang_value v[6];
+  int flag[3];
   uint64_t width;
+  int64_t range[2];
   const char* name;
   size_t name_len;
+  const char* name2;
+  size_t name2_len;
   const vyges_slang_port* ports;
   size_t nports;
 } vyges_slang_call;

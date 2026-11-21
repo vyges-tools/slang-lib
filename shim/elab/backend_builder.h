@@ -11,6 +11,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <span>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -36,7 +37,7 @@ struct ElabBridge {
   int* graphs;
 };
 
-class BackendGraphBuilder : public BackendGraphBuilderBase {
+struct BackendGraphBuilder : public BackendGraphBuilderBase {
  public:
   BackendGraphBuilder(const ElabBridge& bridge, int graph) : bridge_(bridge), graph_(graph) {}
 
@@ -61,27 +62,44 @@ class BackendGraphBuilder : public BackendGraphBuilderBase {
                                    bool public_name) override;
   void connect(ir::Value target, ir::Value source) override;
   void set_initialization(ir::Value signal, ir::Const init_value) override;
-  void add_memory_init(std::string_view name, uint64_t bit_offset, bool big_endian,
-                       ir::Const data) override;
+  ir::Memory* add_memory(std::string_view name, uint64_t width, slang::ConstantRange range) override;
+  void add_read_port(ir::Memory* memory, ir::Value address, ir::Value data) override;
+  ir::WritePort* add_write_port(ir::Memory* memory, std::span<ir::WritePort*> preceding, bool clocked,
+                                bool clock_polarity, ir::Net clk, const ir::Value& enable,
+                                const ir::Value& address, const ir::Value& data) override;
+  void add_memory_init(ir::Memory* memory, uint64_t bit_offset, bool big_endian, ir::Const data) override;
   void add_input(std::string_view name, ir::Value signal) override;
   void add_output(std::string_view name, ir::Value signal) override;
   void add_instance(std::string_view cell_type, std::vector<PortConnection> ports) override;
-  void add_dual_edge_aldff(const std::string& base_name, ir::Value clk, ir::Value aload, ir::Value d,
-                           ir::Value q, ir::Value ad, bool aload_polarity) override;
-  void add_dff(std::string_view name, const ir::Value& clk, const ir::Value& d, const ir::Value& q,
+  void instantiate_blackbox(std::string_view cell_type, std::string_view name,
+                            std::span<PortConnection> port_connections,
+                            std::span<ParameterValue> param_values) override;
+  void add_dual_edge_aldff(const std::string& base_name, ir::Net clk, ir::Net aload, const ir::Value& d,
+                           const ir::Value& q, const ir::Value& ad, bool aload_polarity) override;
+  void add_dff(std::string_view name, const ir::Net clk, const ir::Value& d, const ir::Value& q,
                bool clk_polarity) override;
-  void add_dffe(std::string_view name, const ir::Value& clk, const ir::Value& en, const ir::Value& d,
+  void add_dffe(std::string_view name, const ir::Net clk, const ir::Net en, const ir::Value& d,
                 const ir::Value& q, bool clk_polarity, bool en_polarity) override;
-  void add_aldff(std::string_view name, const ir::Value& clk, const ir::Value& aload, const ir::Value& d,
+  void add_aldff(std::string_view name, const ir::Net clk, const ir::Net aload, const ir::Value& d,
                  const ir::Value& q, const ir::Value& ad, bool clk_polarity, bool aload_polarity) override;
+  void add_aldffe(std::string_view name, const ir::Net clk, const ir::Net en, const ir::Net aload,
+                  const ir::Value& d, const ir::Value& q, const ir::Value& ad, bool clk_polarity,
+                  bool en_polarity, bool aload_polarity) override;
 
  private:
   // Sends one request; the value it returns (empty for requests without one).
   ir::Value send(vyges_slang_call& call, const vyges_slang_port* ports = nullptr, size_t nports = 0);
 
+  // The memory or write port's number in this graph: its index here. The frontend only ever hands
+  // these pointers back; the embedder knows them by number.
+  template <typename T>
+  static uint32_t number_of(const std::vector<std::unique_ptr<T>>& all, const T* p);
+
   ElabBridge bridge_;
   int graph_;
   unsigned next_id_ = 0;
+  std::vector<std::unique_ptr<ir::Memory>> memories_;
+  std::vector<std::unique_ptr<ir::WritePort>> write_ports_;
 };
 
 // Attributes are not carried into the netlist: setting one does nothing.
