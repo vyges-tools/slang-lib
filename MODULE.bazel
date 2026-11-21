@@ -14,14 +14,17 @@ module(
     version = "0.1.0",
 )
 
-bazel_dep(name = "sv-lang", version = "10.0.1-20260316-f04e8156")
+# From OpenROAD pin f11b4276 the reference takes the frontend from the BCR module sv-elab 2026-11-09, which
+# brings sv-lang 12.1.0; we take the same module, so slang is the one the reference links.
+bazel_dep(name = "sv-elab", version = "2026-11-09")
+bazel_dep(name = "sv-lang", version = "12.1.0")
 bazel_dep(name = "rules_cc", version = "0.2.22")
 
 # ⛔ THE TRANSITIVE SET IS PINNED TOO (Bazel's MVS takes the highest version anything asks for).
 # These are the versions the reference's own Bazel graph resolves slang's dependencies to (its
 # MODULE.bazel + lockfile at the pin), higher than slang itself asks for. boost.unordered decides
 # the iteration order of slang's hash containers. Keep this block in step with `slang-pin.yaml`.
-bazel_dep(name = "boost.unordered", version = "1.89.0.bcr.2")
+bazel_dep(name = "boost.unordered", version = "1.90.0.bcr.1")
 bazel_dep(name = "fmt", version = "12.1.0")
 
 # Hermetic LLVM: the compiler is part of the pin, not whatever the host has.
@@ -30,20 +33,4 @@ bazel_dep(name = "llvm", version = "0.8.18", dev_dependency = True)
 register_toolchains(
     "@llvm//toolchain:all",
     dev_dependency = True,
-)
-
-# The synthesis frontend (povik/yosys-slang, ISC; renamed sv-elab upstream) at the commit the
-# reference synthesis engine takes as its submodule. Only its `src/` (the netlist frontend, built
-# without Yosys) and `third_party/hashlib` (public domain) are compiled, by OUR BUILD file: its own
-# BUILD files name the reference's packages and are removed. The frontend's netlist types and
-# backend are ours (`shim/elab/`). Keep in step with `slang-pin.yaml`.
-http_archive = use_repo_rule("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
-
-http_archive(
-    name = "sv_elab",
-    build_file = "//bazel:sv-elab.BUILD",
-    patch_cmds = ["rm -f src/BUILD third_party/BUILD third_party/hashlib/BUILD"],
-    sha256 = "ea31b4a205ebb1fe5ec3789bcd66f21f4975e73c0901622af667f843b833ff10",
-    strip_prefix = "sv-elab-82effc8d9541be69e1ed3ec44759a4449f5d9247",
-    urls = ["https://github.com/povik/yosys-slang/archive/82effc8d9541be69e1ed3ec44759a4449f5d9247.tar.gz"],
 )

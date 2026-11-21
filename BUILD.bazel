@@ -22,12 +22,12 @@ cc_library(
         "shim/elab/ir.h",
         "shim/elab/log_stubs.h",
         "shim/vyges_slang_elab.cc",
-        "@sv_elab//:frontend_srcs",
+        "@sv-elab//:common_srcs",
     ],
     hdrs = ["shim/vyges_slang_elab.h"],
     copts = [
         "-Ishim/elab",
-        "-fmacro-prefix-map=external/+http_archive+sv_elab/=third-party/slang-elab/",
+        "-fmacro-prefix-map=external/sv-elab+/=third-party/slang-elab/",
     ],
     local_defines = [
         "SLANG_MUX_LOWERING",
@@ -36,8 +36,9 @@ cc_library(
     deps = [
         "@fmt",
         "@sv-lang//:libsvlang",
-        "@sv_elab//:frontend_hdrs",
-        "@sv_elab//:hashlib",
+        "@sv-elab//:frontend_hdrs",
+        "@sv-elab//:hashlib",
+        "@sv-elab//:version_hdrs",
     ],
 )
 

@@ -78,7 +78,10 @@ done
 cd "$here"
 llvm=@@llvm++llvm+llvm-project
 runtimes=("$llvm//libcxx:libcxx.static" "$llvm//libcxxabi:libcxxabi.static" "$llvm//libunwind:libunwind.static")
-"$bazel" build "${plat[@]}" //:vyges_slang "${runtimes[@]}"
+# --remote_download_outputs=all: the builtins archive below is read from the output tree, but it is not a
+# top-level output. With a warm disk cache Bazel (build without the bytes) leaves it undownloaded, the
+# find comes back empty and the bundle stops on "missing or empty archive" (box, 2026-11-21).
+"$bazel" build --remote_download_outputs=all "${plat[@]}" //:vyges_slang "${runtimes[@]}"
 
 # The TARGET configuration's archive. Once something is built for the exec (tool) configuration
 # too, cquery lists that copy as well — a second line that is not what the program runs.
